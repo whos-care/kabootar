@@ -2,6 +2,7 @@ class MirrorApp {
     constructor() {
         this.STORAGE_KEY = 'kabootar_read_v1';
         this.LANG_KEY = 'kabootar_lang';
+        this.refreshSidebarSearch = null;
         this.lang = 'fa';
         this.i18n = {};
         const chat = document.getElementById('chat');
@@ -14,6 +15,9 @@ class MirrorApp {
     }
     withVars(template, vars = {}) {
         return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] || '');
+    }
+    escapeRegExp(value) {
+        return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
     escapeHtml(value) {
         return value
@@ -112,9 +116,45 @@ class MirrorApp {
             return iso;
         return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase();
     }
+    formatDayLabel(date) {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000);
+        if (diffDays === 0)
+            return this.t('index.today', 'Today');
+        if (diffDays === 1)
+            return this.t('index.yesterday', 'Yesterday');
+        const locale = this.lang === 'fa' ? 'fa-IR' : 'en-US';
+        const sameYear = now.getFullYear() === date.getFullYear();
+        return date.toLocaleDateString(locale, sameYear ? { month: 'long', day: 'numeric' } : { year: 'numeric', month: 'long', day: 'numeric' });
+    }
     applyTimes() {
         document.querySelectorAll('.time[data-iso]').forEach((el) => {
             el.textContent = this.formatTime(el.dataset.iso || '');
+        });
+    }
+    addDateDividers() {
+        const wrap = document.getElementById('messages');
+        if (!wrap)
+            return;
+        wrap.querySelectorAll('.date-divider').forEach((el) => el.remove());
+        let lastKey = '';
+        [...wrap.querySelectorAll('.msg[data-message-id]')].forEach((msg) => {
+            const iso = msg.querySelector('.time[data-iso]')?.dataset.iso || '';
+            if (!iso)
+                return;
+            const date = new Date(iso);
+            if (Number.isNaN(date.getTime()))
+                return;
+            const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+            if (key === lastKey)
+                return;
+            lastKey = key;
+            const divider = document.createElement('div');
+            divider.className = 'date-divider';
+            divider.innerHTML = `<span class="date-divider-chip">${this.escapeHtml(this.formatDayLabel(date))}</span>`;
+            msg.before(divider);
         });
     }
     applyUnreadBadges(readMap) {
@@ -217,6 +257,159 @@ class MirrorApp {
         });
         window.addEventListener('pageshow', () => setOpen(false));
     }
+    setupSidebarSearch() {
+        const toggle = document.getElementById('channelSearchToggle');
+        const row = document.getElementById('channelSearchRow');
+        const input = document.getElementById('channelSearchInput');
+        const empty = document.getElementById('channelSearchEmpty');
+        if (!toggle || !row || !input)
+            return;
+        const getRows = () => [...document.querySelectorAll('#sidebar .channel')];
+        const getSearchText = (row) => {
+            return ((row.dataset.searchText || '').trim() || '').toLocaleLowerCase();
+        };
+        const applyFilter = () => {
+            const query = (input.value || '').trim().toLocaleLowerCase();
+            const rows = getRows();
+            let visible = 0;
+            rows.forEach((row) => {
+                const matched = !query || getSearchText(row).includes(query);
+                row.hidden = !matched;
+                if (matched)
+                    visible += 1;
+            });
+            if (empty)
+                empty.hidden = !(query && rows.length > 0 && visible === 0);
+        };
+        const setOpen = (open) => {
+            row.hidden = !open;
+            toggle.classList.toggle('active', open);
+            if (!open) {
+                input.value = '';
+                applyFilter();
+            }
+            else {
+                window.setTimeout(() => input.focus(), 20);
+            }
+        };
+        toggle.addEventListener('click', () => setOpen(row.hidden));
+        input.addEventListener('input', applyFilter);
+        input.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                setOpen(false);
+            }
+        });
+        this.refreshSidebarSearch = applyFilter;
+        applyFilter();
+    }
+    setupMessageSearch() {
+        const toggle = document.getElementById('messageSearchToggle');
+        const bar = document.getElementById('messageSearchBar');
+        const input = document.getElementById('messageSearchInput');
+        const clearBtn = document.getElementById('messageSearchClear');
+        const closeBtn = document.getElementById('messageSearchClose');
+        const empty = document.getElementById('messageSearchEmpty');
+        const unreadDivider = document.querySelector('.unread-divider');
+        const messagesWrap = document.getElementById('messages');
+        if (!toggle || !bar || !input || !messagesWrap)
+            return;
+        const rows = [...messagesWrap.querySelectorAll('.msg[data-message-id]')];
+        const dateDividers = [...messagesWrap.querySelectorAll('.date-divider')];
+        if (!rows.length) {
+            toggle.disabled = true;
+            return;
+        }
+        const restoreText = (el) => {
+            if (!el)
+                return;
+            const original = el.dataset.originalText;
+            if (original == null) {
+                el.dataset.originalText = el.textContent || '';
+            }
+            else {
+                el.textContent = original;
+            }
+        };
+        const highlightText = (el, query) => {
+            if (!el)
+                return;
+            const original = el.dataset.originalText ?? (el.textContent || '');
+            el.dataset.originalText = original;
+            if (!query) {
+                el.textContent = original;
+                return;
+            }
+            const regex = new RegExp(`(${this.escapeRegExp(query)})`, 'ig');
+            el.innerHTML = this.escapeHtml(original).replace(regex, '<mark>$1</mark>');
+        };
+        const setOpen = (open) => {
+            bar.hidden = !open;
+            toggle.classList.toggle('active', open);
+            if (!open) {
+                input.value = '';
+                applyFilter();
+            }
+            else {
+                window.setTimeout(() => input.focus(), 20);
+            }
+        };
+        const applyFilter = () => {
+            const query = (input.value || '').trim();
+            const queryLower = query.toLocaleLowerCase();
+            let visible = 0;
+            let firstVisible = null;
+            rows.forEach((row) => {
+                const textEl = row.querySelector('.text');
+                const replyTextEl = row.querySelector('.reply-text');
+                const replyAuthorEl = row.querySelector('.reply-author');
+                const text = textEl?.textContent || '';
+                const replyText = replyTextEl?.textContent || '';
+                const replyAuthor = replyAuthorEl?.textContent || '';
+                const blob = `${text}\n${replyText}\n${replyAuthor}`.toLocaleLowerCase();
+                const matched = !queryLower || blob.includes(queryLower);
+                row.hidden = !matched;
+                restoreText(textEl);
+                restoreText(replyTextEl);
+                restoreText(replyAuthorEl);
+                if (matched && queryLower) {
+                    highlightText(textEl, query);
+                    highlightText(replyTextEl, query);
+                    highlightText(replyAuthorEl, query);
+                }
+                if (matched) {
+                    visible += 1;
+                    if (!firstVisible)
+                        firstVisible = row;
+                }
+            });
+            if (clearBtn)
+                clearBtn.hidden = !query;
+            if (empty)
+                empty.hidden = !(query && visible === 0);
+            if (unreadDivider)
+                unreadDivider.hidden = !!query;
+            dateDividers.forEach((divider) => {
+                divider.hidden = !!query;
+            });
+            if (query && firstVisible)
+                firstVisible.scrollIntoView({ block: 'nearest' });
+        };
+        toggle.addEventListener('click', () => setOpen(bar.hidden));
+        closeBtn?.addEventListener('click', () => setOpen(false));
+        clearBtn?.addEventListener('click', () => {
+            input.value = '';
+            applyFilter();
+            input.focus();
+        });
+        input.addEventListener('input', applyFilter);
+        input.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                setOpen(false);
+            }
+        });
+    }
     setupAddChannelBox() {
         const btnBottom = document.getElementById('addChannelBtnBottom');
         const btnMain = document.getElementById('addChannelBtnMain');
@@ -312,6 +505,7 @@ class MirrorApp {
                 row.className = 'channel pending';
                 row.dataset.channelKey = sourceUrl;
                 row.dataset.latestId = '0';
+                row.dataset.searchText = `@${username} ${sourceUrl}`;
                 row.innerHTML = `
           <div class="avatar avatar-fallback" aria-hidden="true">${this.escapeHtml(this.channelAvatarText(username))}</div>
           <div class="channel-main">
@@ -327,6 +521,7 @@ class MirrorApp {
                     sidebar.appendChild(row);
                 }
             });
+            this.refreshSidebarSearch?.();
         };
         form.addEventListener('submit', async (ev) => {
             ev.preventDefault();
@@ -791,9 +986,12 @@ class MirrorApp {
         const readMap = this.loadReadMap();
         this.setupLiteMode();
         this.applyTimes();
+        this.addDateDividers();
         this.applyUnreadBadges(readMap);
         const divider = this.addUnreadDivider(readMap);
         this.setupMobileMenu();
+        this.setupSidebarSearch();
+        this.setupMessageSearch();
         this.setupAddDomainBox();
         this.setupAddChannelBox();
         this.setupSyncDialog();
