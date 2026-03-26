@@ -353,6 +353,30 @@ body{
   overscroll-behavior:contain;
 }
 
+.date-divider{
+  display:flex;
+  justify-content:center;
+  padding:4px 0;
+  pointer-events:none;
+}
+
+.date-divider-chip{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:28px;
+  padding:0 12px;
+  border-radius:999px;
+  background:rgba(20,34,49,.62);
+  border:1px solid rgba(255,255,255,.08);
+  box-shadow:0 10px 24px rgba(0,0,0,.18);
+  backdrop-filter:blur(10px);
+  color:#dbe9f5;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.02em;
+}
+
 .msg{
   background:linear-gradient(180deg,var(--card),var(--card-soft));
   border:1px solid rgba(255,255,255,.06);

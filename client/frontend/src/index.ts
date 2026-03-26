@@ -153,9 +153,50 @@ class MirrorApp {
     return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase();
   }
 
+  private formatDayLabel(date: Date): string {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffDays = Math.round((today.getTime() - target.getTime()) / 86400000);
+
+    if (diffDays === 0) return this.t('index.today', 'Today');
+    if (diffDays === 1) return this.t('index.yesterday', 'Yesterday');
+
+    const locale = this.lang === 'fa' ? 'fa-IR' : 'en-US';
+    const sameYear = now.getFullYear() === date.getFullYear();
+    return date.toLocaleDateString(
+      locale,
+      sameYear ? { month: 'long', day: 'numeric' } : { year: 'numeric', month: 'long', day: 'numeric' },
+    );
+  }
+
   private applyTimes(): void {
     document.querySelectorAll<HTMLElement>('.time[data-iso]').forEach((el) => {
       el.textContent = this.formatTime(el.dataset.iso || '');
+    });
+  }
+
+  private addDateDividers(): void {
+    const wrap = document.getElementById('messages') as HTMLElement | null;
+    if (!wrap) return;
+
+    wrap.querySelectorAll('.date-divider').forEach((el) => el.remove());
+
+    let lastKey = '';
+    [...wrap.querySelectorAll<HTMLElement>('.msg[data-message-id]')].forEach((msg) => {
+      const iso = msg.querySelector<HTMLElement>('.time[data-iso]')?.dataset.iso || '';
+      if (!iso) return;
+      const date = new Date(iso);
+      if (Number.isNaN(date.getTime())) return;
+
+      const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      if (key === lastKey) return;
+      lastKey = key;
+
+      const divider = document.createElement('div');
+      divider.className = 'date-divider';
+      divider.innerHTML = `<span class="date-divider-chip">${this.escapeHtml(this.formatDayLabel(date))}</span>`;
+      msg.before(divider);
     });
   }
 
@@ -330,6 +371,7 @@ class MirrorApp {
     if (!toggle || !bar || !input || !messagesWrap) return;
 
     const rows = [...messagesWrap.querySelectorAll<HTMLElement>('.msg[data-message-id]')];
+    const dateDividers = [...messagesWrap.querySelectorAll<HTMLElement>('.date-divider')];
     if (!rows.length) {
       toggle.disabled = true;
       return;
@@ -405,6 +447,9 @@ class MirrorApp {
       if (clearBtn) clearBtn.hidden = !query;
       if (empty) empty.hidden = !(query && visible === 0);
       if (unreadDivider) unreadDivider.hidden = !!query;
+      dateDividers.forEach((divider) => {
+        divider.hidden = !!query;
+      });
       if (query && firstVisible) firstVisible.scrollIntoView({ block: 'nearest' });
     };
 
@@ -989,6 +1034,7 @@ class MirrorApp {
     const readMap = this.loadReadMap();
     this.setupLiteMode();
     this.applyTimes();
+    this.addDateDividers();
     this.applyUnreadBadges(readMap);
     const divider = this.addUnreadDivider(readMap);
     this.setupMobileMenu();
