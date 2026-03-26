@@ -165,6 +165,14 @@ tasks.named("preBuild").configure {
     dependsOn(syncKabootarPython)
 }
 
+// Gradle 8+ validation: explicitly declare dependency for Chaquopy merge tasks
+// which consume generatedPythonDir from syncKabootarPython.
+tasks.configureEach {
+    if (name.contains("PythonSources", ignoreCase = true)) {
+        dependsOn(syncKabootarPython)
+    }
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
